@@ -1,0 +1,100 @@
+# vim: ft=python
+import xlwt
+from xlsxwriter.utility import xl_range
+
+configfile: 'hpv_config.yaml'
+workdir: os.environ['PWD']
+shell.executable('bash')
+
+plug = config['cov_dev']
+
+localrules: glu_cov, glu_format, format_xls
+
+rule all_glu:
+    input: 
+        'reports/glu/amplicon_coverage_formatted.xls',
+        expand('ptrim_hpv/{sampleID}.hpv.bam', sampleID=sampleIDs)
+
+
+rule prep_plot:
+    input: expand('ptrim_hpv/{sampleID}.hpv.bam', sampleID=sampleIDs)
+    output:
+        stat = 'reports/glu/stat.txt',
+        cov = 'reports/glu/cov.txt'
+    run:
+        shell('{plug}/prep.sh ptrim_hpv {amp_bed} .bam {output.stat} {output.cov}')
+
+rule stat:
+    input: 'reports/glu/stat.txt'
+    output: 'reports/glu/pct.txt'
+    run:
+        shell('{plug}/stat.sh {input} {output}')
+
+rule plot_cov:
+    input:
+        cov = 'reports/glu/cov.txt',
+        pct = 'reports/glu/pct.txt'
+    output: 'reports/glu/cov.pdf'
+    run:
+        shell('Rscript {plug}/plot.R {input.cov} {output} {input.pct}')
+
+rule glu_cov:
+    input: expand('ptrim_hpv/{sampleID}.hpv.bam', sampleID=sampleIDs)
+    output: 'reports/glu/amplicon_coverage.txt'
+    run:
+        shell('glu seq.amplicon_coverage --targets={amp_bed} -r {hpv_ref} -o {output} ptrim_hpv/*.bam')
+
+rule glu_format:
+    input: 'reports/glu/amplicon_coverage.txt'
+    output: 'reports/glu/amplicon_coverage_mod.xls'
+    run:
+        shell('Rscript {plug}/format.R {input} {output} {amp_bed} 1')
+
+rule format_xls:
+    input: 'reports/glu/amplicon_coverage_mod.xls'
+    output: 'reports/glu/amplicon_coverage_formatted.xls'
+    run:
+        df = pandas.read_table(input[0], sep='\t')
+        df['Sample_Amplicon'] = df['Sample_Amplicon'].apply(lambda x: x.split('/')[-1])
+
+        # split into two df, sort the right df by start loc
+        df1, df2 = df.iloc[:, :2], df.iloc[:, 2:]
+
+        df2.iloc[2:] = df2.iloc[2:].astype(int)
+        df2 = df2.sort_values(df.index[2], axis=1)
+
+        df = pandas.concat([df1, df2], axis=1)
+
+        # create a pandas excel writer using xlsxwriter as the engine
+        writer = pandas.ExcelWriter(output[0], engine='xlsxwriter')
+
+        # convert the dataframe to an exlsxwriter excel object
+        df.to_excel(writer, sheet_name='amplicon_coverage_mod')
+
+        # get the xlsxwriter objects from the dataframe writer object
+        workbook = writer.book
+        worksheet = writer.sheets['amplicon_coverage_mod']
+
+        # pandas can't output index=False yet, so the first column will be the index
+        # data cells start at D:7 (6,3)
+        last_col = len(df.columns) # +1 for index, -1 for 0 index
+        last_row = len(df) + 5 - 1 # add the header rows back in, -1 for 0 index
+        data_cells = xl_range(6,3, last_row, last_col)
+
+        worksheet.conditional_format(data_cells, {'type': '3_color_scale',
+                                                'min_type': 'num',
+                                                'mid_type': 'num',
+                                                'max_type': 'num',
+                                                'min_value': 0,
+                                                'mid_value': 10,
+                                                'max_value': 20,
+                                                'min_color': '#F8696B',
+                                                'mid_color': 'white',
+                                                'max_color': '#63BE7B'
+                                                })
+
+        # hide the index column
+        worksheet.set_column(0, 0, 1, None, {'hidden': 1})
+
+        writer.save()
+

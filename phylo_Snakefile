@@ -1,0 +1,78 @@
+# vim: ft=python
+
+configfile: 'hpv_config.yaml'
+workdir: os.environ['PWD']
+shell.executable('bash')
+
+# make sure to use the N-filtered fasta so that there are no 100% N sequences
+
+localrules: all_phy, cat_ref, ete_tree, tree_full, tree_pruned
+
+rule all_phy:
+    input: 
+        expand('fasta/{sampleID}_HPV%s.fasta' %hpv_type, sampleID=sampleIDs),
+        'reports/trees/%s_full_tree.png' % config['deliver_proj'],
+        'reports/trees/%s_pruned_tree.png' % config['deliver_proj']
+
+
+rule cat_ref:
+    input: samples = config['deliver_proj'] + '_N-%d.fasta' %config['fasta_n']
+    output: 'phylo/HPV%s_filtered_with_Ref.fasta' %hpv_type
+    params: 
+        line = config['lineage'] %(hpv_type, hpv_type)
+    priority: 50
+    run:
+        shell('cat {input.samples} {params.line} > {output}')
+
+
+rule mafft:
+    input: 'phylo/HPV%s_filtered_with_Ref.fasta' %hpv_type
+    output: 'phylo/%s_mafft.fasta' %config['deliver_proj']
+    threads: 16
+    priority: 50
+    run:
+        # http://mafft.cbrc.jp/alignment/software/tips.html
+        # this G-INS-1 setting assumes > 200 samples (best for >2000 sample); very resource intensive
+        shell('mafft --globalpair --thread {threads} {input} > {output}')
+
+
+rule clustalo:
+    input: config['deliver_proj'] + '_N-%d.fasta' %config['fasta_n']
+    output: 'phylo/%s_clustalo.fasta' %config['deliver_proj']
+    threads: 16
+    run:
+        shell('clustalo -i {input} --threads {threads} -o {output} --verbose')
+
+
+# create nuwick tree
+rule ete_tree:
+    input: 'phylo/%s_mafft.fasta' %config['deliver_proj']
+    output: 'phylo/ete/%s/%s_mafft.fasta.final_tree.nw' %(config['ete_wf'], config['deliver_proj'])
+    params: 
+        outdir = 'phylo/ete',
+        wf =  config['ete_wf']
+    run:
+        # switch to the ete3 conda env (py 2.7)
+        shell('source activate ete3; ete3 build -n {input} -w {params.wf} -o {params.outdir}')
+
+
+rule tree_full:
+    input: 
+        nw = 'phylo/ete/%s/%s_mafft.fasta.final_tree.nw' %(config['ete_wf'], config['deliver_proj']),
+    params: 
+        py = 'phylo/build_tree.py',
+        alg = 'phylo/ete/%s/%s_mafft.fasta.final_tree.used_alg.fa' %(config['ete_wf'], config['deliver_proj'])
+    output: 'reports/trees/%s_full_tree.png' % config['deliver_proj']
+    run:
+        shell('source activate ete3; python {params.py} {input.nw} {params.alg} {output} full')
+
+
+rule tree_pruned:
+    input:
+        nw = 'phylo/ete/%s/%s_mafft.fasta.final_tree.nw' %(config['ete_wf'], config['deliver_proj']),
+    params: 
+        py = 'phylo/build_tree.py',
+        alg = 'phylo/ete/%s/%s_mafft.fasta.final_tree.used_alg.fa' %(config['ete_wf'], config['deliver_proj'])
+    output: 'reports/trees/%s_pruned_tree.png' % config['deliver_proj']
+    run:
+        shell('source activate ete3; python {params.py} {input.nw} {params.alg} {output} pruned')
