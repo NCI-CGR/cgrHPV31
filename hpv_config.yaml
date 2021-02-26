@@ -33,7 +33,7 @@ hpv_reference:
     hpv16: path/to/HPV16Ref_hg19.fasta
 
 amplicon_bed:   # formerly called amp_bed
-    single: path/to/HPV%s.20161025.designed.bed
+    single: path/to/HPV%s.designed.bed
     universal: path/to/HPVRef_13Types_Ref_Mapped_hg19.unmerged-detail.bed
     hpv16: path/to/HPV16_amplicon_no_primer_01172015.bed
 
@@ -44,17 +44,15 @@ len_bed:   # include the whole genome
 
 
 # Tools and packages
-vc_bin: path/HPV/tvc-5.0.3/bin
-vc_pipe: path/HPV/tvc-5.0.3/bin/variant_caller_pipeline.py
-vc_param: path/HPV/germline_low_stringency_no_het_low_depth.json
-cov_dev: path/HPV/cgrCoverageDev
+vc_bin: path/tvc-5.0.3/bin
+vc_pipe: path/tvc-5.0.3/bin/variant_caller_pipeline.py
+vc_param: path/germline_low_stringency_no_het_low_depth.json
 
-# SNPEFF
 # a database for the hpv type must be created in the snpEff directory
 snpeff: path/snpEff
 annotation:
-    single: path/snpEff/data/hpv%s/genes.gtf
-    universal: path/snpEff/data/hpv_universal/genes.gtf   # does this even work...? might have to use single...
-    hpv16: path/snpEff/data/hpv16/genes.gtf
-snpeff_bed: path/HPV/universal_annotations_20170106.txt # includes all types of interest
+    single: path/hpv%s/genes.gtf
+    universal: path/hpv_universal/genes.gtf
+    hpv16: path/hpv16/genes.gtf
+snpeff_bed: path/universal_annotations_20170106.txt # includes all types of interest
 
