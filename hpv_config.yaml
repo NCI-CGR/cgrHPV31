@@ -1,0 +1,58 @@
+# Configuration for Universal and Single Panel primer Snakemake pipeline.
+
+
+
+# 1) This is where the aligned bam files can be found. (glob)
+tmap_path: path/to/*bam
+
+# 2) Choose panel type: single, universal, or hpv16.
+panel_type: single  # single, universal, or hpv16
+
+# 3) Set the main type of HPV for these samples.
+hpv_type: 31  # just the number, even if universal panel was used
+
+# 4) Prefix for the sample IDs
+cohort: PAP
+
+# 5) This is name of the deliverable directory
+deliver_proj: Type_Study_RD###_YearMonthDay
+
+# 6) Select mapq threshold.
+aq_filter: 4
+
+# 7) choose minimum read depth for fasta files
+min_read: 4
+
+
+# Reference files - These do not need to be changed between runs!
+# The pipeline and references are formatted to accept any of the HR HPV types.
+hpv_reference:
+    single: path/to/HPV%sRef_Pad400_hg19/HPV%sRef_Pad400_hg19.fasta
+    universal: path/to/HPV_Ref_Alphas65_Pad400_hg19.fasta 
+    # hpv16 is different because it doesn't use a padded genome
+    hpv16: path/to/HPV16Ref_hg19.fasta
+
+amplicon_bed:   # formerly called amp_bed
+    single: path/to/HPV%s.designed.bed
+    universal: path/to/HPVRef_13Types_Ref_Mapped_hg19.unmerged-detail.bed
+    hpv16: path/to/HPV16_amplicon_no_primer_01172015.bed
+
+len_bed:   # include the whole genome
+    single: path/to/HPV%s/hpv%s.bed 
+    universal: path/to/hpv_universal.bed
+    hpv16: path/to/hpv16.bed
+
+
+# Tools and packages
+vc_bin: path/tvc-5.0.3/bin
+vc_pipe: path/tvc-5.0.3/bin/variant_caller_pipeline.py
+vc_param: path/germline_low_stringency_no_het_low_depth.json
+
+# a database for the hpv type must be created in the snpEff directory
+snpeff: path/snpEff
+annotation:
+    single: path/hpv%s/genes.gtf
+    universal: path/hpv_universal/genes.gtf
+    hpv16: path/hpv16/genes.gtf
+snpeff_bed: path/universal_annotations_20170106.txt # includes all types of interest
+
