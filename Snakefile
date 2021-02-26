@@ -1,26 +1,24 @@
 # vim: ft=python
 import os
-import collections
 import glob
 import itertools
 import pandas
 import pysam
 from Bio import SeqIO
-from Bio.SeqIO import FastaIO
 from Bio.Seq import Seq
-
 
 configfile: "hpv_config.yaml"
 workdir: os.environ['PWD']
 shell.executable('bash')
 
+
+# determine if the run had a single-type panel or the universal panel
 PANEL = config['panel_type']
 hpv_type = config['hpv_type']
 if PANEL == 'single':
-    hpv_ref = config['hpv_reference']['universal']
-    #hpv_ref = config['hpv_reference']['single'] %(hpv_type, hpv_type)
+    hpv_ref = config['hpv_reference']['single'] %(hpv_type, hpv_type)
     amp_bed = config['amplicon_bed']['single'] %hpv_type
-    len_bed = config['len_bed']['single'] %hpv_type
+    len_bed = config['len_bed']['single'] %(hpv_type, hpv_type)
     annot = config['annotation']['single'] %hpv_type
 else:
     hpv_ref = config['hpv_reference'][PANEL]
@@ -28,13 +26,12 @@ else:
     len_bed = config['len_bed'][PANEL]
     annot = config['annotation'][PANEL]
 
-cov_dev = config["cov_dev"]
-GENES = ['E1', 'E2', 'E4', 'E5', 'E6', 'E7', 'L1', 'L2']
 
-bed = {}
-len_file = open(len_bed, 'r')
 # create a dictionary of type and genome length
 # e.g. bed['HPV16_Ref'] = 7906
+bed = {}
+len_file = open(len_bed, 'r')
+
 for line in len_file:
     (type, length) = (line.split()[0], int(line.split()[2]))
     if PANEL == 'hpv16':
@@ -68,34 +65,27 @@ for key, value in itertools.groupby(bamfiles, parse_sampleID):
 
 sampleIDs = d.keys()
 
-TARGETS =   [config['deliver_proj'] + '_N-%d.fasta' %config['fasta_n'],
-            'reports/type_summary.tsv'
-            ]
-
-include: 'qc_Snakefile' # creates the fastqc summaries and multiqc report
-TARGETS += ['reports/filtered_read_count.tsv']
-include: 'annotation_Snakefile' # annotates vcf and creates snpeff multiqc report
-TARGETS += ['multiqc/snpeff_report.html']
-include: 'peptide_Snakefile' # creates amino acid fasta files
-TARGETS += ['aa_convert/%s_aa.fasta' %config['deliver_proj']]
-include: 'coverage_Snakefile' # creates a heat map of read coverage
-TARGETS += ['reports/all_ptrim_heatmap.png', 'reports/all_raw_heatmap.png']
-include: 'glu_Snakefile'
-TARGETS += ['reports/glu/amplicon_coverage_formatted.xls']
-include: 'phylo_Snakefile' # create phylo trees
-TARGETS += ['reports/trees/%s_full_tree.png' % config['deliver_proj'], 'reports/trees/%s_pruned_tree.png' % config['deliver_proj']]
-
 # These rules run on the host node and are not submitted to the cluster.
 localrules: all
+
+TARGETS += [config['deliver_proj'] + '.fasta', 
+            'type_summary.tsv']
+
+include: 'qc_Snakefile' # creates the fastqc summaries and multiqc report
+TARGETS += ['multiqc/fastqc_report.html']
+
+include: 'annotation_Snakefile' # annotates vcf and creates snpeff multiqc report
+TARGETS += ['multiqc/snpeff_report.html']
 
 #--------------------------------------------------------------------------
 rule all:
     input: TARGETS
 
+
 def link_rule_input_files(wildcards):
     return d[wildcards.sampleID]
 
-#--------------------------------------------------------------------------
+
 rule link:
     input: link_rule_input_files
     output: 'bams/{sampleID}.bam'
@@ -125,7 +115,7 @@ rule link:
         else:
             shell('cd bams; ln -s {input} {wildcards.sampleID}.bam && touch -h {wildcards.sampleID}.bam')
 
-#--------------------------------------------------------------------------
+
 rule mapq_filter:
     input: rules.link.output
     output: 'mapq_filter/{sampleID}.filtered.bam'
@@ -169,7 +159,7 @@ rule variant_call:
         --region-bed {len_bed}')
 
 
-rule adjust_padding:    # this rule doesn't need to run on hpv16 - edit out someday
+rule adjust_padding:
     input: rules.variant_call.output[0]
     output: 'tvc_vcf/{sampleID}.tvc_no_pad.vcf'
     params: temp = '{sampleID}.temp.vcf'
@@ -198,7 +188,7 @@ rule adjust_padding:    # this rule doesn't need to run on hpv16 - edit out some
             shell('vcf-sort -c {output} > {params.temp}')
             shell('mv {params.temp} {output}')
 
-#--------------------------------------------------------------------------
+
 rule hpv_bam:   # removes human reads
     input: 'tvc/{sampleID}/{sampleID}.ptrim.bam'
     output: 'ptrim_hpv/{sampleID}.hpv.bam'
@@ -206,14 +196,14 @@ rule hpv_bam:   # removes human reads
         shell('samtools view -h -L {len_bed} {input} | samtools view -bS -o {output}')
         shell('samtools index {output}')
 
-#--------------------------------------------------------------------------
+
 rule pileup:
     input: rules.hpv_bam.output
     output: 'pileup/{sampleID}.pileup'
     run:
         shell('samtools mpileup -f {hpv_ref} -l {len_bed} {input} > {output}')
 
-#--------------------------------------------------------------------------
+
 rule fasta:
     input:
         rules.pileup.output,
@@ -298,7 +288,6 @@ rule fasta:
             outfile.close()
 
 
-#--------------------------------------------------------------------------
 rule fasta_cat:
     input: expand('fasta/{sampleID}_HPV%s.fasta' %hpv_type, sampleID=sampleIDs)
     output: config['deliver_proj'] + '.fasta'
@@ -306,32 +295,9 @@ rule fasta_cat:
         shell('cat {input} > {output}')
 
 
-rule fasta_n:
-    input: rules.fasta_cat.output
-    output: config['deliver_proj'] + '_N-%d.fasta' %config['fasta_n']
-    run:
-        maxN = int(config['fasta_n'])
-        keep = []
-        for record in SeqIO.parse(input[0], 'fasta'):
-            d = collections.Counter(record.seq) # creates a dictionary w/counts for each character found
-            if 'N' in d.keys():
-                if (float(d['N'])/len(record.seq) * 100) < maxN:
-                    keep.append(record)
-            else:
-                keep.append(record)
-
-        # SeqIO.write doesn't let you set wrap width, so use FastaIO directly
-        outfile = open(output[0], 'w')
-        fasta_out = FastaIO.FastaWriter(outfile, wrap=None)
-        fasta_out.write_file(keep)
-        outfile.close()
-
-
-
-#--------------------------------------------------------------------------
 rule type_summary:
     input: expand('pileup/{sampleID}.pileup', sampleID=d.keys())
-    output: 'reports/type_summary.tsv'
+    output: 'type_summary.tsv'
     run:
         stacks = []
         # iterate through each sample pileup and pull out which types were found
@@ -350,12 +316,3 @@ rule type_summary:
 
 
 
-
-
-#--------------------------------------------------------------------------
-# convert existing qc_report.sh to snakefile
-#onsuccess:
-#    # run the qc scripts and copy deliverables to HPV Consortium
-#    cov_dev = config["cov_dev"]
-#    deliver = config["deliver_proj"]
-#    shell('bash qc_report.sh {cov_dev} . {amp_bed} {hg_fasta} {deliver}')

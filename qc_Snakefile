@@ -1,15 +1,17 @@
 # vim: ft=python
+#import glob
+#import itertools
 
 configfile: 'hpv_config.yaml'
 workdir: os.environ['PWD']
 shell.executable('bash')
 
-localrules: all_qc
 
 rule all_qc:
     input: 
         expand('posttrim_qc/{sampleID}.filtered_fastqc.zip', sampleID=sampleIDs),
-        'reports/filtered_read_count.tsv'
+        'multiqc/fastqc_report.html'
+
 
 rule pretrim_qc:
     input: 'bams/{sampleID}.bam'
@@ -18,12 +20,14 @@ rule pretrim_qc:
     run:
         shell('fastqc {input} -t {threads} --outdir=pretrim_qc')
 
+
 rule posttrim_qc:
     input: 'mapq_filter/{sampleID}.filtered.bam'
     output: 'posttrim_qc/{sampleID}.filtered_fastqc.zip'
     threads: 4
     run:
         shell('fastqc {input} -t {threads} --outdir=posttrim_qc')
+
 
 rule fastqc_report:
     input:
@@ -33,19 +37,3 @@ rule fastqc_report:
     run:
         shell('multiqc -d pretrim_qc posttrim_qc -o multiqc -n fastqc_report')
 
-rule filtered_count:
-    input: rules.fastqc_report.output
-    output: 'reports/filtered_read_count.tsv'
-    run:
-        df = pandas.read_table('multiqc/fastqc_report_data/multiqc_general_stats.txt', sep='\t')
-        df['sampleID'] = df['Sample'].apply(lambda x: x.split(' | ')[1].split('.')[0])
-
-        pre = df[df['Sample'].str.contains('pretrim')][['sampleID', 'FastQC_total_sequences']].copy()
-        post = df[df['Sample'].str.contains('posttrim')][['sampleID', 'FastQC_total_sequences']].copy()
-
-        dd = pre.merge(post, on='sampleID', suffixes=('_pre', '_post'))
-        dd['lowq_reads'] = dd['FastQC_total_sequences_pre'].astype(float) - dd['FastQC_total_sequences_post'].astype(float)
-        dd['lowq_perc'] = 100 - (dd['FastQC_total_sequences_post'].astype(float) / dd['FastQC_total_sequences_pre'].astype(float) * 100)
-
-        shell('mkdir -p reports')
-        dd.to_csv('reports/filtered_read_count.tsv', sep='\t', index=False)

@@ -4,12 +4,12 @@ configfile: 'hpv_config.yaml'
 workdir: os.environ['PWD']
 shell.executable('bash')
 
-localrules: all
 
 rule ann_all:
     input: 
         expand('tvc_ann/{sampleID}.ann.vcf', sampleID=sampleIDs),
         'multiqc/snpeff_report.html'
+
 
 rule annotate:
     input: 'tvc_vcf/{sampleID}.tvc_no_pad.vcf'
@@ -27,7 +27,7 @@ rule annotate:
                 -stats {output[1]} \
                 -c {params.snpeff}/snpEff.config {params.db} {input} > {output[0]}')
 
-#--------------------------------------------------------------------------
+
 rule snpeff_report:
     input: expand('tvc_ann/{sampleID}_snpEff.summary.csv', sampleID=sampleIDs)
     output: 'multiqc/snpeff_report.html'
